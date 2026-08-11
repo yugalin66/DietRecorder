@@ -1,0 +1,23 @@
+# Environments & Secrets
+.env
+venv/
+.venv/
+env/
+
+# Python Cache & Build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+database/*.sqlite
+database/*.db
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
