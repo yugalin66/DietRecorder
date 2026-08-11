@@ -66,8 +66,16 @@ DietBot/
 │   ├── line_service.py         # LINE Messaging API 推播與回覆
 │   ├── diet_manager.py         # 飲食狀態機與核心業務邏輯
 │   └── scheduler.py            # APScheduler 定時推播任務
+├── tests/                      # 自動化測試單元模組目錄
+│   ├── conftest.py             # 測試 Fixture 與 Helper 函式
+│   ├── test_user_creation.py
+│   ├── test_profile_setup.py
+│   ├── test_full_meal_sequence.py
+│   ├── test_breakfast_keyword_trigger.py
+│   ├── test_unsupported_command.py
+│   ├── test_option_bubble.py
+│   └── test_meal_summary_nutrient.py
 ├── main.py                     # FastAPI 伺服器入口 (Webhook & Direct REST API)
-├── test_diet_bot.py            # 自動化測試腳本
 ├── requirements.txt            # Python 依賴套件
 └── .env                        # 環境變數設定檔
 ```
@@ -92,7 +100,7 @@ pip install -r requirements.txt
 ### 3. 執行測試腳本
 
 ```bash
-venv/bin/pytest -v test_diet_bot.py
+venv/bin/pytest -v tests/
 ```
 
 ### 4. 啟動 FastAPI 服務
