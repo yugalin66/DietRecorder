@@ -24,6 +24,7 @@ class User(Base):
     target_fat = Column(Float, nullable=False, default=50.0)      # grams (25%)
 
     preferred_exercises = Column(Text, default=DEFAULT_PREFERRED_EXERCISES)
+    is_profile_set = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

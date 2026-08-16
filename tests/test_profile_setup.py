@@ -8,3 +8,12 @@ def test_profile_setup(db_session):
     assert user.current_weight == 75.0
     assert user.target_weight == 68.0
     assert user.daily_calorie_target > 0
+    assert user.is_profile_set is True
+
+
+def test_unconfigured_user_image_upload(db_session):
+    user_id = "new_user_no_profile"
+    res = diet_manager.process_image_message(db_session, user_id, b"fake_image_bytes")
+    assert "請先完成基本資料設定" in res
+    assert "年齡、性別、身高、目前體重與目標體重" in res
+

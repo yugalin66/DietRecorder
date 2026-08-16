@@ -370,6 +370,7 @@ class DietManager:
             user.target_protein = parsed.get("target_protein", user.target_protein)
             user.target_carbs = parsed.get("target_carbs", user.target_carbs)
             user.target_fat = parsed.get("target_fat", user.target_fat)
+            user.is_profile_set = True
             db.commit()
 
             return f"""🎯 【個人飲食目標已更新】
@@ -472,6 +473,17 @@ class DietManager:
     def process_image_message(self, db: Session, user_id: str, image_bytes: bytes, caption: str | None = None):
         user = self.get_or_create_user(db, user_id)
         today_log = self.get_or_create_daily_log(db, user_id)
+
+        # Check if user has completed basic profile setup (age, gender, height, weight)
+        if not user.is_profile_set:
+            return (
+                "⚠️ 【請先完成基本資料設定】\n"
+                "----------------------------\n"
+                "歡迎使用阿肌師！為了精確為您計算每日熱量目標與營養素預算，請先傳送訊息設定您的個人基本資料（年齡、性別、身高、目前體重與目標體重）。\n\n"
+                "💡 格式範例（直接傳送文字即可）：\n"
+                "「我今年 28 歲，男，身高 175 公分，目前 75 公斤，目標減到 68 公斤」\n\n"
+                "完成設定後，即可開始上傳照片打卡記錄餐點！💪"
+            )
 
         food_analysis = gemini_service.analyze_food(image_bytes=image_bytes, text_description=caption)
         
