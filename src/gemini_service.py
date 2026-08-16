@@ -248,40 +248,130 @@ JSON範例：
                 ]
             }
 
+    def analyze_exercise(self, image_bytes: bytes | None = None, text_description: str | None = None) -> dict:
+        """Analyze exercise photo (watch screenshot/gym screen) and/or text description."""
+        pil_image = None
+        if image_bytes:
+            try:
+                img = Image.open(BytesIO(image_bytes))
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=85, optimize=True)
+                buf.seek(0)
+                pil_image = Image.open(buf)
+            except Exception as e:
+                logger.error(f"Failed to process/compress exercise image bytes: {e}")
+
+        prompt = f"""
+你是一個頂尖AI運動教練與臨床體能評估師。請評估照片與/或文字描述中的運動打卡內容。
+
+重要規則：
+1. 請先判斷此照片/描述是否屬於「運動、健身、訓練、跑步、散步、運動手錶/App螢幕截圖或健身器材」（is_exercise）。
+   - 若非運動相關，將 is_exercise 設為 false！
+   - 若包含任何運動或訓練紀錄，將 is_exercise 設為 true！
+
+2. 若 is_exercise 為 true：
+   - 識別運動名稱 exercise_name (例如 "慢跑", "重量訓練", "槓鈴臥推", "游泳", "散步", "腳踏車")
+   - 運動種類 category: "aerobic" (有氧) 或 "anaerobic" (無氧/重訓)
+   - 估算運動時間 duration_minutes (分鐘數字，若無法確定給予 30)
+   - 估算消耗熱量 calories_burned (kcal數字，若文字/照片有明確標示熱量請優先採用標示數字)
+   - 給予一句專業短評 summary (例如: "槓鈴臥推能強化胸大肌與上肢力量，做得好！")
+
+用戶描述："{text_description or '請分析這張運動照片'}"
+
+請嚴格輸出合法 JSON 格式：
+{{
+  "is_exercise": true,
+  "exercise_name": "慢跑",
+  "category": "aerobic",
+  "duration_minutes": 30,
+  "calories_burned": 220,
+  "summary": "慢跑是非常棒的有氧心肺訓練，有助於脂肪燃燒與維護心血管健康！"
+}}
+"""
+        try:
+            raw_res = self._call_gemini(prompt, image=pil_image)
+            cleaned = re.sub(r"^```json\s*", "", raw_res, flags=re.MULTILINE)
+            cleaned = re.sub(r"^```\s*", "", cleaned, flags=re.MULTILINE).strip()
+            return json.loads(cleaned)
+        except Exception as e:
+            logger.error(f"Failed to analyze exercise with Gemini: {e}")
+            return {
+                "is_exercise": True,
+                "exercise_name": text_description or "體能訓練",
+                "category": "aerobic",
+                "duration_minutes": 30,
+                "calories_burned": 150.0,
+                "summary": "已為您記錄運動項目，持之以恆有助於提高代謝與體能！"
+            }
+
     def generate_day_summary(
         self,
         user_name: str,
         user_info: dict,
         total_consumed: dict,
-        meal_records: list[dict]
+        meal_records: list[dict],
+        exercise_records: list[dict] | None = None,
+        preferred_exercises: list[str] | None = None
     ) -> str:
-        """Generate final end-of-day summary and advice."""
+        """Generate final end-of-day summary and advice including exercise assessment."""
         daily_target = user_info.get("daily_calorie_target", 1800)
-        cal_pct = round((total_consumed.get("calories", 0) / daily_target) * 100) if daily_target else 0
+        cals_in = total_consumed.get("calories", 0)
+        ex_burned = total_consumed.get("exercise_calories", 0)
+        net_cals = max(0, cals_in - ex_burned)
+        cal_pct = round((net_cals / daily_target) * 100) if daily_target else 0
+        workout_days = user_info.get("workout_days", 3)
+        curr_w = user_info.get("current_weight", 70.0)
+        targ_w = user_info.get("target_weight", 65.0)
+
+        # Weight goal classification
+        if targ_w < curr_w:
+            weight_goal_desc = f"減重燃脂 (當前 {curr_w}kg -> 目標 {targ_w}kg)"
+        elif targ_w > curr_w:
+            weight_goal_desc = f"增肌重訓 (當前 {curr_w}kg -> 目標 {targ_w}kg)"
+        else:
+            weight_goal_desc = f"體能維持 (當前與目標均為 {curr_w}kg)"
 
         meals_text = "\n".join([
-            f"- [{m.get('meal_type', '').upper()}] {m.get('food_description')}: {m.get('calories')} kcal (P:{m.get('protein')}g, C:{m.get('carbs')}g, F:{m.get('fat')}g)"
+            f"- [{m.get('meal_type', '').upper()}] {m.get('food_description')}: {m.get('calories')} kcal"
             for m in meal_records
-        ])
+        ]) or "無"
+
+        exercises_text = "\n".join([
+            f"- {e.get('exercise_type')}: {e.get('duration_minutes', 0)} min (-{e.get('calories_burned')} kcal)"
+            for e in (exercise_records or [])
+        ]) if exercise_records else "今日尚未記錄運動"
+
+        # Sanitize preferred exercises list (filter out old "重量訓練")
+        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "游泳", "散步", "腳踏車"]) if p != "重量訓練"]
+        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 游泳, 散步, 腳踏車"
 
         prompt = f"""
-你是一個極簡高效的專業營養師。請為用戶「{user_name}」撰寫一份【極精簡的一日飲食總結】。
+你是一位專業且熱情的個人健身教練 (Personal Fitness Coach) 與營養師。請為學員「{user_name}」撰寫【極精簡的一日飲食與運動教練評估】。
 
-字數與格式硬性要求：
-1. 全文字數必須控制在 60~90 字內！絕對不要長篇大論！
-2. 必須直接稱呼「{user_name}」，絕對禁止出現 [用戶姓名]、[你的名字]、[姓名] 等括號填空字眼！
-3. 絕對禁止使用 Markdown 粗體語法 (如 **文字**)，LINE 不支援粗體，請直接寫出純文字！
-4. 「明日建議」僅需【一句話極簡建議】，絕對不要分餐點建議！
+教練指導與硬性要求：
+1. 必須直接稱呼「{user_name}」，絕對禁止出現 [用戶姓名] 等括號填空字眼！
+2. 絕對禁止使用 Markdown 粗體語法 (如 **文字**)。
+3. 請考量學員的體重目標（{weight_goal_desc}）與每週預計運動天數（每週 {workout_days} 天），結合今日飲食熱量狀況進行整體評估。
+4. 運動推薦硬性格式：從學員偏好運動清單 ({pref_str}) 中挑選 1 項推薦。推薦時【除了運動項目之外，必須同時建議具體的時間或幾下幾組】！
+   - 例如有氧/跑步類：建議格式為「跑步 30分鐘」或「散步 40分鐘」或「腳踏車 45分鐘」。
+   - 例如重訓/力量類：建議格式為「臥推 10下3組」或「深蹲 15下3組」或「二頭肌彎舉 12下3組」。
+5. 避免重複：參考學員今日已做運動 ({exercises_text})，請推薦不同於今日已做項目的運動，保持運動多樣性與輪替。
 
-用戶數據：
-- 用戶：{user_name} (目標：{user_info.get('current_weight')}kg -> {user_info.get('target_weight')}kg)
-- 總熱量：{total_consumed.get('calories', 0)} / {daily_target} kcal ({cal_pct}%)
-- 今日已吃：{meals_text}
+學員數據：
+- 體重目標：{curr_w}kg -> {targ_w}kg ({weight_goal_desc})
+- 每週運動天數設定：每週 {workout_days} 天
+- 飲食攝取：{cals_in} kcal / 運動消耗：-{ex_burned} kcal / 淨熱量：{net_cals} kcal ({cal_pct}% 目標)
+- 今日飲食：{meals_text}
+- 今日運動：{exercises_text}
 
-請精簡輸出以下 3 行（每行僅需 1 句話）：
+請精簡輸出以下 4 行（每行 1~2 句話）：
 🌟 達標亮點：(1句精簡鼓勵)
-📊 營養評估：(1句營養素狀況)
-💡 明日建議：(1句極簡改善建議)
+📊 營養評估：(1句熱量與營養素狀況)
+🏃 運動教練推薦：(結合每週 {workout_days} 天運動規劃與體重目標，推薦 1 項具體運動，務必包含時間或幾下幾組，例如「臥推 10下3組」或「慢跑 30分鐘」)
+💡 明日建議：(1句極簡綜合改善建議)
 """
         try:
             raw_res = self._call_gemini(prompt)
@@ -289,6 +379,77 @@ JSON範例：
             return cleaned
         except Exception as e:
             logger.error(f"Failed to generate day summary: {e}")
-            return f"🌟 達標亮點：感謝您今日持續記錄飲食！\n📊 營養評估：今日熱量總攝取為 {total_consumed.get('calories', 0):.0f} kcal。\n💡 明日建議：維持均衡飲食與規律運動！"
+            default_pref = filtered_prefs[0] if filtered_prefs else "慢跑"
+            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "腳踏車"] else f"{default_pref} 10下3組"
+            return (
+                f"🌟 達標亮點：感謝您今日持續記錄飲食與運動！\n"
+                f"📊 營養評估：淨熱量攝取為 {net_cals:.0f} kcal。\n"
+                f"🏃 運動教練推薦：教練建議您考量每週 {workout_days} 天運動計畫，可進行【{default_rec}】保持鍛鍊強度與體能。\n"
+                f"💡 明日建議：維持均衡飲食與補充電解質水份！"
+            )
+
+    def suggest_workout_recommendation(
+        self,
+        user_name: str,
+        user_info: dict,
+        today_exercises: list[dict],
+        preferred_exercises: list[str]
+    ) -> str:
+        """Generate direct exercise recommendation from AI Personal Fitness Coach."""
+        workout_days = user_info.get("workout_days", 3)
+        curr_w = user_info.get("current_weight", 70.0)
+        targ_w = user_info.get("target_weight", 65.0)
+
+        if targ_w < curr_w:
+            weight_goal_desc = f"減重燃脂 (當前 {curr_w}kg -> 目標 {targ_w}kg)"
+        elif targ_w > curr_w:
+            weight_goal_desc = f"增肌重訓 (當前 {curr_w}kg -> 目標 {targ_w}kg)"
+        else:
+            weight_goal_desc = f"體能維持 (當前與目標均為 {curr_w}kg)"
+
+        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "游泳", "散步", "腳踏車"]) if p != "重量訓練"]
+        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 游泳, 散步, 腳踏車"
+        done_ex_str = ", ".join([e.get("exercise_type", "") for e in today_exercises]) if today_exercises else "無"
+
+        prompt = f"""
+你是一位講求科學訓練排程與計畫性的專業個人健身教練「阿肌師」。請為學員「{user_name}」進行【有計畫性、週期結構化】的運動推薦與規劃。
+
+教練指導與硬性要求：
+1. 必須直接稱呼「{user_name}」，絕對禁止出現 [用戶姓名] 等括號填空字眼！
+2. 絕對禁止使用 Markdown 粗體語法 (如 **文字**)。
+3. 【計畫性與週期排程】：絕對不可隨機或單純輪替挑選！必須根據學員的【每週預計運動天數 ({workout_days} 天/週)】與【體重目標 ({weight_goal_desc})】，排定符合科學週期的訓練計畫焦點（例如：3 天計畫可排定「上肢推拉/下肢核心/有氧心肺」；5 天計畫可分拆「胸、背、腿、肩、心肺」；減重著重高熱量消耗搭配大肌群，增肌著重漸進負荷強度）。
+4. 【項目精準選用】：從學員的偏好運動清單 ({pref_str}) 中，評估並精確挑選出最符合【今日計劃焦點】的 1 個項目。
+5. 【具體數據規格】：推薦的項目必須標示【具體時間】或【幾下幾組與強度規格】！
+   - 例如：「臥推 10下3組」、「慢跑 30分鐘 (保持配速與微喘強度)」、「深蹲 12下3組」、「腳踏車 40分鐘」。
+6. 【說明計畫邏輯】：極簡說明（字數嚴格限制在 10~20 字以內，精準指出訓練好處，絕對不要長篇大論）。
+
+學員當前規劃數據：
+- 體重目標與需求：{weight_goal_desc}
+- 每週運動天數設定：每週 {workout_days} 天
+- 偏好運動選單庫：{pref_str}
+- 今日已記錄運動：{done_ex_str}
+
+請嚴格格式化輸出以下內容：
+🏋️‍♂️【阿肌師週計畫運動推薦】
+----------------------------
+🎯 今日計劃訓練：【項目名稱與時間/組數強度】
+📋 週計畫定位：(說明在每週 {workout_days} 天計劃中的訓練重點與分類)
+💪 教練計畫說明：(極簡10~20字說明，例如：有助於增強核心力量與大肌群肌耐力)
+"""
+        try:
+            raw_res = self._call_gemini(prompt)
+            return raw_res.replace("**", "").strip()
+        except Exception as e:
+            logger.error(f"Failed to generate workout recommendation: {e}")
+            default_pref = filtered_prefs[0] if filtered_prefs else "慢跑"
+            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "腳踏車"] else f"{default_pref} 10下3組"
+            return (
+                f"🏋️‍♂️【阿肌師週計畫運動推薦】\n"
+                f"----------------------------\n"
+                f"🎯 今日計劃訓練：【{default_rec}】\n"
+                f"📋 週計畫定位：每週 {workout_days} 天週期訓練計畫排程\n"
+                f"💪 教練計畫說明：有效提升心肺耐力與全身基礎代謝！"
+            )
 
 gemini_service = GeminiService()
+

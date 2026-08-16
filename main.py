@@ -29,12 +29,12 @@ async def lifespan(app: FastAPI):
     logger.info("Stopping scheduler...")
     stop_scheduler()
 
-app = FastAPI(title="DietBot API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="阿肌師 API", version="1.0.0", lifespan=lifespan)
 
 @app.get("/")
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "DietBot"}
+    return {"status": "ok", "service": "阿肌師"}
 
 class DirectMessageRequest(BaseModel):
     user_id: str = "test_user_1"
@@ -51,15 +51,73 @@ def direct_chat(req: DirectMessageRequest, db: Session = Depends(get_db)):
         return {"reply": reply_text_msg, "flex_card": flex_dict, "alt_text": alt_text}
     return {"reply": res}
 
+from src.diet_manager import (
+    diet_manager,
+    build_exercise_list_flex,
+    build_exercise_select_flex,
+    build_exercise_duration_flex,
+    build_workout_days_select_flex
+)
+
 def async_process_event(ev: dict):
     db = SessionLocal()
     try:
         user_id = ev.get("source", {}).get("userId", "default_user")
         reply_token = ev.get("replyToken")
+        ev_type = ev.get("type")
         msg = ev.get("message", {})
         msg_type = msg.get("type")
 
-        logger.info(f"[Async Job] Processing event for user {user_id}, msg_type: {msg_type}")
+        logger.info(f"[Async Job] Processing event for user {user_id}, ev_type: {ev_type}, msg_type: {msg_type}")
+
+        # 0. Handle Follow (Add Friend) Events
+        if ev_type == "follow":
+            logger.info(f"[Async Job] User {user_id} followed 阿肌師.")
+            diet_manager.get_or_create_user(db, user_id)
+            return
+
+        # 1. Handle Postback Events (Exercise list add/remove & exercise select/duration)
+        if ev_type == "postback":
+            postback_data = ev.get("postback", {}).get("data", "")
+            logger.info(f"[Async Job] Postback data for user {user_id}: {postback_data}")
+            params = dict(q.split("=") for q in postback_data.split("&") if "=" in q)
+            action = params.get("action")
+            name = params.get("name", "")
+
+            user = diet_manager.get_or_create_user(db, user_id)
+
+            if action == "add_exercise":
+                ok, notice = diet_manager.add_user_preferred_exercise(db, user, name)
+                flex_card, alt_text = build_exercise_list_flex(user)
+                line_service.reply_text_and_flex(reply_token, notice, alt_text, flex_card)
+            elif action == "remove_exercise":
+                ok, notice = diet_manager.remove_user_preferred_exercise(db, user, name)
+                flex_card, alt_text = build_exercise_list_flex(user)
+                line_service.reply_text_and_flex(reply_token, notice, alt_text, flex_card)
+            elif action == "custom_exercise_prompt":
+                diet_manager.user_pending_actions[user_id] = "awaiting_custom_exercise"
+                line_service.reply_text(reply_token, "請輸入運動項目")
+            elif action == "select_workout_days":
+                flex_card, alt_text = build_workout_days_select_flex(user)
+                line_service.reply_text_and_flex(reply_token, "請選擇您每週預計的運動天數：", alt_text, flex_card)
+            elif action == "set_workout_days":
+                days = int(params.get("days", "3"))
+                user.workout_days = days
+                db.commit()
+                flex_card, alt_text = build_exercise_list_flex(user)
+                line_service.reply_text_and_flex(reply_token, f"✅ 已成功將每週運動天數更新為【{days} 天】！", alt_text, flex_card)
+            elif action == "select_exercise":
+                flex_card, alt_text = build_exercise_duration_flex(name)
+                line_service.reply_text_and_flex(reply_token, f"您選擇了【{name}】！請問進行了多久時間呢？", alt_text, flex_card)
+            elif action == "select_duration":
+                duration = params.get("min", "30")
+                res = diet_manager.process_exercise_message(db, user_id, None, f"{name} {duration} 分鐘")
+                line_service.reply_text(reply_token, res)
+            return
+
+        # 2. Handle Message Events (Text & Image)
+        if msg_type in ["text", "image"]:
+            line_service.show_loading_animation(user_id, loading_seconds=30)
 
         if msg_type == "text":
             text = msg.get("text", "")
@@ -73,15 +131,21 @@ def async_process_event(ev: dict):
             msg_id = msg.get("id")
             img_bytes = line_service.get_message_content(msg_id)
             if img_bytes:
-                res = diet_manager.process_image_message(db, user_id, img_bytes)
-                if res is None:
-                    logger.info(f"[Async Job] Non-food image detected for {user_id}.")
-                    line_service.reply_text(reply_token, "📷 辨識提醒：未能從照片中辨識到食物內容，請嘗試上傳清晰的食物照片，或用文字輸入餐點打卡！")
-                elif isinstance(res, tuple):
-                    reply_text_msg, flex_dict, alt_text = res
+                # Try food recognition first
+                food_res = diet_manager.process_image_message(db, user_id, img_bytes)
+                
+                # If food analysis determined it's NOT food, fallback to test if it's an exercise photo
+                if isinstance(food_res, str) and "未能在此照片中辨識出明確的食物" in food_res:
+                    ex_res = diet_manager.process_exercise_message(db, user_id, img_bytes)
+                    if isinstance(ex_res, str) and "未能在此照片/訊息中辨識出明確的運動紀錄" not in ex_res:
+                        line_service.reply_text(reply_token, ex_res)
+                        return
+
+                if isinstance(food_res, tuple):
+                    reply_text_msg, flex_dict, alt_text = food_res
                     line_service.reply_text_and_flex(reply_token, reply_text_msg, alt_text, flex_dict)
                 else:
-                    line_service.reply_text(reply_token, res)
+                    line_service.reply_text(reply_token, food_res)
             else:
                 logger.error(f"[Async Job] Failed to retrieve image bytes for msg_id {msg_id}")
                 line_service.reply_text(reply_token, "⚠️ 抱歉，照片讀取失敗，請重新上傳一次喔！")
@@ -95,6 +159,7 @@ def async_process_event(ev: dict):
                 logger.error(f"[Async Job] Failed to send error reply: {reply_err}")
     finally:
         db.close()
+
 
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):

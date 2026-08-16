@@ -181,6 +181,83 @@ def build_option_carousel_card(meal_type: str, options: list[dict]) -> tuple[dic
     alt_text = f"【{meal_name_tw}選項卡片】"
     return carousel_dict, alt_text
 
+def build_exercise_list_flex(user: User) -> tuple[dict, str]:
+    days = getattr(user, "workout_days", 3)
+    flex_card = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#059669",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": "🏃‍♂️ 個人運動偏好與天數管理", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": f"每週運動目標天數：{days} 天", "size": "sm", "color": "#1F2937"}
+            ]
+        }
+    }
+    return flex_card, "【個人運動清單】"
+
+def build_workout_days_select_flex(user: User) -> tuple[dict, str]:
+    flex_card = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#059669",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": "設定每週運動天數", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": "請選擇您每週預計運動的天數：", "size": "sm", "color": "#1F2937"}
+            ]
+        }
+    }
+    return flex_card, "【設定每週運動天數】"
+
+def build_exercise_select_flex() -> tuple[dict, str]:
+    flex_card = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#059669",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": "運動項目選擇", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+            ]
+        }
+    }
+    return flex_card, "【選擇運動】"
+
+def build_exercise_duration_flex(name: str) -> tuple[dict, str]:
+    flex_card = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#059669",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": f"選擇【{name}】時間", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+            ]
+        }
+    }
+    return flex_card, f"【{name} 時間選擇】"
+
 class DietManager:
     def get_or_create_user(self, db: Session, user_id: str) -> User:
         user = db.query(User).filter(User.user_id == user_id).first()
@@ -222,14 +299,27 @@ class DietManager:
             db.refresh(log)
         return log
 
+    def get_welcome_message(self) -> str:
+        return """💪【歡迎加入「阿肌師」！您的飲食與健身 AI 教練】🥗
+
+哈囉！我是「阿肌師」👨‍🍳🏋️‍♂️
+精通健康餐點熱量搭配，也是您的個人專屬健身教練！
+
+🎯 【核心功能指引】
+1. 🍱 飲食建議：輸入「早餐」、「午餐」或「晚餐」取得 3 種推薦卡片。
+2. 📸 食物打卡：傳送餐點照片或文字（如：「早餐吃了蛋餅與豆漿」）。
+3. 🏋️‍♂️ 運動推薦與打卡：輸入「運動」獲得專屬訓練；輸入「慢跑30分鐘」或上傳截圖紀錄。
+4. 📊 進度與設定：輸入「今日紀錄」看營養進度；輸入「運動清單」設定偏好與每週天數。
+
+🔥 請直接傳送「我目前 75 公斤，目標減到 68 公斤」或上傳您的第一餐照片，一起開始變強壯吧！💪"""
+
     def get_help_message(self) -> str:
-        return """🥗 【DietBot 飲食助手使用說明】
+        return """🥗 【阿肌師 飲食與健身助手使用說明】
 ----------------------------
-DietBot 是您的智慧飲食紀錄 AI 助手，支援以下功能：
+阿肌師 是您的智慧飲食紀錄與健身教練 AI 助手，支援以下自然語言指令：
 
 1. 🎯 【個人目標與體重設定】
-   - 直接傳送：「我目前 75 公斤，目標減到 68 公斤」
-   - 或輸入指令：`/setup`
+   - 直接傳送自然語言：「我目前 75 公斤，目標減到 68 公斤」
 
 2. 🍱 【取得個人化餐點建議選單】
    - 輸入：「早餐」、「午餐」、「晚餐」或「早安」
@@ -240,12 +330,23 @@ DietBot 是您的智慧飲食紀錄 AI 助手，支援以下功能：
    - 文字打卡：例如「我早餐吃了一份鮪魚蛋吐司和無糖豆漿」
    - 點心/宵夜：例如「下午茶喝了一杯無糖珍珠拿鐵」
 
-4. 📊 【查看今日紀錄與進度】
-   - 輸入：`/status` 或「今日紀錄」、「總覽」
-   - 隨時查看熱量與三大營養素圖表進度！
+4. 🏋️‍♂️ 【每日運動推薦】
+   - 輸入：「運動」或「今日運動」
+   - 系統為您量身打造計畫性運動訓練！
 
-5. ❓ 【使用說明】
-   - 輸入：`/help` 或「說明」、「幫助」"""
+5. 🏃 【運動記錄與打卡】
+   - 截圖打卡：傳送運動 App 或手錶螢幕截圖
+   - 文字打卡：例如「慢跑 30分鐘」、「臥推 10下3組」
+
+6. 📊 【查看今日紀錄與進度】
+   - 輸入：「今日紀錄」或「總覽」
+   - 隨時查看熱量與三大營養素進度條！
+
+7. 🏃‍♀️ 【個人運動清單與天數管理】
+   - 輸入：「運動清單」查看與設定運動天數與偏好運動
+
+8. ❓ 【使用說明】
+   - 輸入：「說明」、「指令」或「幫助」"""
 
     def process_text_message(self, db: Session, user_id: str, text: str):
         user = self.get_or_create_user(db, user_id)

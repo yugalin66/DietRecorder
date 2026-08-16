@@ -21,3 +21,6 @@ database/*.db
 .vscode/
 .idea/
 .DS_Store
+
+# Logs
+*.log

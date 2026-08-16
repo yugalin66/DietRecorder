@@ -9,7 +9,8 @@ from linebot.v3.messaging import (
     PushMessageRequest,
     TextMessage,
     FlexMessage,
-    FlexContainer
+    FlexContainer,
+    ShowLoadingAnimationRequest
 )
 from src.config import settings
 
@@ -21,6 +22,24 @@ class LineService:
         self.channel_secret = settings.LINE_CHANNEL_SECRET
         self.configuration = Configuration(access_token=self.access_token)
         self.handler = WebhookHandler(self.channel_secret) if self.channel_secret else None
+
+    def show_loading_animation(self, user_id: str, loading_seconds: int = 30):
+        """Show loading animation in user's LINE chat UI while AI processes message."""
+        if not user_id or user_id.startswith("test") or user_id in ["default_user", "dummy_user"]:
+            return
+        
+        try:
+            with ApiClient(self.configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.show_loading_animation(
+                    ShowLoadingAnimationRequest(
+                        chat_id=user_id,
+                        loading_seconds=loading_seconds
+                    )
+                )
+            logger.info(f"Showed loading animation ({loading_seconds}s) for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not show loading animation for {user_id}: {e}")
 
     def reply_text(self, reply_token: str, text: str):
         """Reply text message to LINE user."""
@@ -88,6 +107,36 @@ class LineService:
             logger.info(f"Successfully pushed message to {user_id}")
         except Exception as e:
             logger.error(f"Failed to push LINE message to {user_id}: {e}", exc_info=True)
+
+    def push_text_and_flex(self, user_id: str, text: str, alt_text: str, flex_dict: dict):
+        """Push both text and Flex Message card to LINE user."""
+        if not user_id:
+            logger.warning("push_text_and_flex called without user_id")
+            return
+        
+        try:
+            with ApiClient(self.configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                flex_msg = FlexMessage(
+                    alt_text=alt_text,
+                    contents=FlexContainer.from_dict(flex_dict)
+                )
+                messages = []
+                if text and text.strip():
+                    messages.append(TextMessage(text=text.strip()))
+                messages.append(flex_msg)
+
+                line_bot_api.push_message(
+                    PushMessageRequest(
+                        to=user_id,
+                        messages=messages
+                    )
+                )
+            logger.info(f"Successfully pushed text & Flex Message to {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to push Flex Message: {e}", exc_info=True)
+            fallback_text = f"{text}\n\n【{alt_text}】" if text else alt_text
+            self.push_text(user_id, fallback_text)
 
     def get_user_profile(self, user_id: str) -> str:
         """Fetch LINE user display name."""

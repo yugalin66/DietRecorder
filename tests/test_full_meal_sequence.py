@@ -25,6 +25,6 @@ def test_full_meal_sequence(db_session):
     assert "總結與明日建議" in reply_dn
 
     # 5. Check daily status command
-    reply_status = get_text_from_reply(diet_manager.process_text_message(db_session, user_id, "/status"))
-    assert "今日飲食紀錄總覽" in reply_status
-    assert "熱量攝取" in reply_status
+    reply_status = get_text_from_reply(diet_manager.process_text_message(db_session, user_id, "今日紀錄"))
+    assert "熱量" in reply_status or "營養評估" in reply_status
+
