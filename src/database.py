@@ -38,4 +38,14 @@ def init_db():
             conn.commit()
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_profile_set BOOLEAN DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(text("UPDATE users SET is_profile_set = 1 WHERE user_id IN (SELECT DISTINCT user_id FROM meal_records) OR daily_calorie_target != 1800"))
+            conn.commit()
+        except Exception:
+            pass
 

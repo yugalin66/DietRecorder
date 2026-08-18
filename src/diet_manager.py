@@ -17,41 +17,53 @@ def make_progress_bar(current: float, target: float, length: int = 10) -> str:
 def build_4_progress_bars(log: DailyLog, user: User) -> str:
     # 1. Calories
     cal_target = user.daily_calorie_target or 1800
-    cal_pct = min(100, int((log.total_calories / cal_target) * 100))
-    cal_rem = max(0, cal_target - log.total_calories)
+    cal_pct = int((log.total_calories / cal_target) * 100) if cal_target else 0
+    if log.total_calories > cal_target:
+        cal_status = f"超過 {log.total_calories - cal_target:.0f} kcal"
+    else:
+        cal_status = f"剩餘 {cal_target - log.total_calories:.0f} kcal"
     cal_bar = make_progress_bar(log.total_calories, cal_target)
 
     # 2. Carbs
     c_target = user.target_carbs or 200.0
-    c_pct = min(100, int((log.total_carbs / c_target) * 100)) if c_target else 0
-    c_rem = max(0, c_target - log.total_carbs)
+    c_pct = int((log.total_carbs / c_target) * 100) if c_target else 0
+    if log.total_carbs > c_target:
+        c_status = f"超過 {log.total_carbs - c_target:.1f} g"
+    else:
+        c_status = f"剩餘 {c_target - log.total_carbs:.1f} g"
     c_bar = make_progress_bar(log.total_carbs, c_target)
 
     # 3. Protein
     p_target = user.target_protein or 100.0
-    p_pct = min(100, int((log.total_protein / p_target) * 100)) if p_target else 0
-    p_rem = max(0, p_target - log.total_protein)
+    p_pct = int((log.total_protein / p_target) * 100) if p_target else 0
+    if log.total_protein > p_target:
+        p_status = f"超過 {log.total_protein - p_target:.1f} g"
+    else:
+        p_status = f"剩餘 {p_target - log.total_protein:.1f} g"
     p_bar = make_progress_bar(log.total_protein, p_target)
 
     # 4. Fat
     f_target = user.target_fat or 50.0
-    f_pct = min(100, int((log.total_fat / f_target) * 100)) if f_target else 0
-    f_rem = max(0, f_target - log.total_fat)
+    f_pct = int((log.total_fat / f_target) * 100) if f_target else 0
+    if log.total_fat > f_target:
+        f_status = f"超過 {log.total_fat - f_target:.1f} g"
+    else:
+        f_status = f"剩餘 {f_target - log.total_fat:.1f} g"
     f_bar = make_progress_bar(log.total_fat, f_target)
 
     return f"""📊 【今日熱量與三大營養素進度】
 ----------------------------
 🔥 熱量攝取：{log.total_calories:.0f} / {cal_target} kcal ({cal_pct}%)
-[{cal_bar}] 剩餘 {cal_rem:.0f} kcal
+[{cal_bar}] {cal_status}
 
 🍞 碳水化合物：{log.total_carbs:.1f} / {c_target:.1f} g ({c_pct}%)
-[{c_bar}] 剩餘 {c_rem:.1f} g
+[{c_bar}] {c_status}
 
 🥩 蛋白質：{log.total_protein:.1f} / {p_target:.1f} g ({p_pct}%)
-[{p_bar}] 剩餘 {p_rem:.1f} g
+[{p_bar}] {p_status}
 
 🥑 脂肪：{log.total_fat:.1f} / {f_target:.1f} g ({f_pct}%)
-[{f_bar}] 剩餘 {f_rem:.1f} g"""
+[{f_bar}] {f_status}"""
 
 def build_option_bubble(meal_type: str, opt: dict) -> dict:
     bg_color = {"breakfast": "#16a34a", "lunch": "#0284c7", "dinner": "#7c3aed"}.get(meal_type, "#059669")
