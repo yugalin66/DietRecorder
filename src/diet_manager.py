@@ -586,6 +586,7 @@ class DietManager:
         user_profile = self._user_to_dict(user)
         total_consumed = self._log_to_dict(log)
         consumed_meals_summary = [f"{m.meal_type}: {m.food_description}" for m in log.meals]
+        progress_bar_section = build_4_progress_bars(log, user)
 
         # Trigger next step in sequence
         if meal_type == "breakfast":
@@ -593,14 +594,14 @@ class DietManager:
             intro_summary = rec_dict.get("intro_summary", "為您提供【午餐建議選單】：")
             options = rec_dict.get("options", [])
             flex_carousel, alt_text = build_option_carousel_card("lunch", options)
-            return (f"{meal_summary_text}\n\n----------------------------\n🥗 {intro_summary}", flex_carousel, alt_text)
+            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n----------------------------\n🥗 {intro_summary}", flex_carousel, alt_text)
 
         elif meal_type == "lunch":
             rec_dict = gemini_service.suggest_next_meal("dinner", user_profile, total_consumed, consumed_meals_summary)
             intro_summary = rec_dict.get("intro_summary", "為您提供【晚餐建議選單】：")
             options = rec_dict.get("options", [])
             flex_carousel, alt_text = build_option_carousel_card("dinner", options)
-            return (f"{meal_summary_text}\n\n----------------------------\n🍲 {intro_summary}", flex_carousel, alt_text)
+            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n----------------------------\n🍲 {intro_summary}", flex_carousel, alt_text)
 
         elif meal_type == "dinner" or (log.breakfast_completed and log.lunch_completed and log.dinner_completed):
             user_name = line_service.get_user_profile(user.user_id)
@@ -610,12 +611,10 @@ class DietManager:
                 total_consumed,
                 [self._meal_to_dict(m) for m in log.meals]
             )
-            progress_bar_section = build_4_progress_bars(log, user)
 
             full_text = f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n🎉 【一日總結與明日建議】\n{day_summary}"
             return full_text
         else:
-            progress_bar_section = build_4_progress_bars(log, user)
             full_text = f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}"
             return full_text
 
