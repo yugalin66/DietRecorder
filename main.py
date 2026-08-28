@@ -112,7 +112,7 @@ def async_process_event(ev: dict):
 
         # 2. Handle Message Events (Text & Image)
         if msg_type in ["text", "image"]:
-            line_service.show_loading_animation(user_id, loading_seconds=30)
+            line_service.show_loading_animation(user_id, loading_seconds=60)
 
         if msg_type == "text":
             text = msg.get("text", "")

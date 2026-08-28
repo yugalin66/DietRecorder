@@ -23,7 +23,7 @@ class LineService:
         self.configuration = Configuration(access_token=self.access_token)
         self.handler = WebhookHandler(self.channel_secret) if self.channel_secret else None
 
-    def show_loading_animation(self, user_id: str, loading_seconds: int = 30):
+    def show_loading_animation(self, user_id: str, loading_seconds: int = 60):
         """Show loading animation in user's LINE chat UI while AI processes message."""
         if not user_id or user_id.startswith("test") or user_id in ["default_user", "dummy_user"]:
             return
