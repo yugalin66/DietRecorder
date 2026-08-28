@@ -4,8 +4,8 @@ from sqlalchemy import Column, Integer, Float, String, Boolean, DateTime, Foreig
 from sqlalchemy.orm import relationship
 from src.database import Base
 
-DEFAULT_PREFERRED_EXERCISES = json.dumps(["慢跑", "游泳", "散步", "腳踏車"], ensure_ascii=False)
-ALL_CANDIDATE_EXERCISES = ["慢跑", "游泳", "散步", "腳踏車", "羽毛球", "籃球", "臥推", "深蹲", "二頭肌彎舉", "滑輪下拉", "划船", "腿推", "核心", "用戶自訂"]
+DEFAULT_PREFERRED_EXERCISES = json.dumps(["慢跑", "自行車", "游泳", "散步"], ensure_ascii=False)
+ALL_CANDIDATE_EXERCISES = ["慢跑", "自行車", "游泳", "散步"]
 
 class User(Base):
     __tablename__ = "users"

@@ -91,7 +91,7 @@ def async_process_event(ev: dict):
                 line_service.reply_text_and_flex(reply_token, notice, alt_text, flex_card)
             elif action == "custom_exercise_prompt":
                 diet_manager.user_pending_actions[user_id] = "awaiting_custom_exercise"
-                line_service.reply_text(reply_token, "請輸入運動項目")
+                line_service.reply_text(reply_token, "✍️ 請直接傳送您想新增的自訂運動項目名稱（例如：攀岩、拳擊、皮拉提斯、划船機）：")
             elif action == "select_workout_days":
                 flex_card, alt_text = build_workout_days_select_flex(user)
                 line_service.reply_text_and_flex(reply_token, "請選擇您每週預計的運動天數：", alt_text, flex_card)

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import date, datetime, timedelta
 import zoneinfo
 from sqlalchemy.orm import Session
@@ -219,7 +220,7 @@ def get_user_preferred_exercises(user: User) -> list[str]:
             return json.loads(user.preferred_exercises)
     except Exception:
         pass
-    return ["慢跑", "游泳", "散步", "腳踏車"]
+    return ["慢跑", "自行車", "游泳", "散步"]
 
 def build_exercise_list_flex(user: User) -> tuple[dict, str]:
     days = getattr(user, "workout_days", 3)
@@ -248,32 +249,19 @@ def build_exercise_list_flex(user: User) -> tuple[dict, str]:
             ]
         })
 
-    candidate_exercises = ["慢跑", "游泳", "散步", "腳踏車", "羽毛球", "籃球", "臥推", "深蹲", "二頭肌彎舉", "滑輪下拉", "划船", "腿推", "核心"]
-    not_added = [c for c in candidate_exercises if c not in prefs]
-
-    cand_rows = []
-    for i in range(0, len(not_added), 3):
-        row_cands = not_added[i:i+3]
-        btn_row = []
-        for c in row_cands:
-            btn_row.append({
-                "type": "button",
-                "style": "secondary",
-                "height": "sm",
-                "margin": "xs",
-                "action": {
-                    "type": "postback",
-                    "label": f"+ {c}",
-                    "data": f"action=add_exercise&name={c}",
-                    "displayText": f"新增偏好運動：{c}"
-                }
-            })
-        cand_rows.append({
-            "type": "box",
-            "layout": "horizontal",
-            "spacing": "xs",
-            "contents": btn_row
-        })
+    custom_btn = {
+        "type": "button",
+        "style": "primary",
+        "color": "#059669",
+        "height": "sm",
+        "margin": "md",
+        "action": {
+            "type": "postback",
+            "label": "➕ 自訂運動項目",
+            "data": "action=custom_exercise_prompt",
+            "displayText": "自訂運動項目"
+        }
+    }
 
     body_contents = [
         {
@@ -305,10 +293,8 @@ def build_exercise_list_flex(user: User) -> tuple[dict, str]:
     else:
         body_contents.append({"type": "text", "text": "尚無設定偏好項目", "size": "xs", "color": "#9CA3AF"})
 
-    if cand_rows:
-        body_contents.append({"type": "separator", "margin": "md"})
-        body_contents.append({"type": "text", "text": "➕ 點擊快速加入偏好項目：", "weight": "bold", "size": "xs", "color": "#4B5563", "margin": "md"})
-        body_contents.extend(cand_rows)
+    body_contents.append({"type": "separator", "margin": "md"})
+    body_contents.append(custom_btn)
 
     flex_card = {
         "type": "bubble",
@@ -666,7 +652,8 @@ class DietManager:
         # Check 0.1: Pending custom exercise input from postback prompt
         if self.user_pending_actions.get(user_id) == "awaiting_custom_exercise":
             self.user_pending_actions.pop(user_id, None)
-            ok, notice = self.add_user_preferred_exercise(db, user, clean_text)
+            clean_name = re.sub(r"^(新增|添加|自訂)\s*", "", clean_text).strip() or clean_text
+            ok, notice = self.add_user_preferred_exercise(db, user, clean_name)
             flex_card, alt_text = build_exercise_list_flex(user)
             return (notice, flex_card, alt_text)
 
@@ -695,9 +682,10 @@ class DietManager:
             )
             return rec_text
 
-        # Check 0.4: Single exercise item selection (e.g. "慢跑", "深蹲")
+        # Check 0.4: Single exercise item selection (e.g. "慢跑", "深蹲", or custom exercise)
+        user_prefs = self.get_user_preferred_exercises(user)
         all_candidate_items = ["慢跑", "游泳", "散步", "腳踏車", "羽毛球", "籃球", "臥推", "深蹲", "二頭肌彎舉", "滑輪下拉", "划船", "腿推", "核心"]
-        if clean_text in all_candidate_items:
+        if clean_text in all_candidate_items or clean_text in user_prefs:
             flex_card, alt_text = build_exercise_duration_flex(clean_text)
             return (f"您選擇了【{clean_text}】！請問進行了多久時間呢？", flex_card, alt_text)
 
@@ -707,7 +695,7 @@ class DietManager:
             "臥推", "深蹲", "二頭肌", "滑輪下拉", "划船", "腿推", "硬舉",
             "核心", "開合跳", "波比跳", "羽毛球", "籃球", "網球", "瑜珈", "皮拉提斯",
             "重訓", "練胸", "練背", "練腿", "練肩", "有氧", "tabata", "hit", "hiit"
-        ]
+        ] + user_prefs
         has_exercise_kw = any(k in clean_text for k in exercise_action_keywords)
         has_time_or_set_unit = any(u in clean_text for u in ["分", "min", "小時", "hr", "組", "下", "次", "公里", "km", "k"])
         if has_exercise_kw and (has_time_or_set_unit or any(v in clean_text for v in ["做了", "去", "完成", "練了", "打卡"])):

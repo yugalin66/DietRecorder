@@ -345,8 +345,8 @@ JSON範例：
         ]) if exercise_records else "今日尚未記錄運動"
 
         # Sanitize preferred exercises list (filter out old "重量訓練")
-        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "游泳", "散步", "腳踏車"]) if p != "重量訓練"]
-        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 游泳, 散步, 腳踏車"
+        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "自行車", "游泳", "散步"]) if p != "重量訓練"]
+        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 自行車, 游泳, 散步"
 
         prompt = f"""
 你是一位專業且熱情的個人健身教練 (Personal Fitness Coach) 與營養師。請為學員「{user_name}」撰寫【極精簡的一日飲食與運動教練評估】。
@@ -356,7 +356,7 @@ JSON範例：
 2. 絕對禁止使用 Markdown 粗體語法 (如 **文字**)。
 3. 請考量學員的體重目標（{weight_goal_desc}）與每週預計運動天數（每週 {workout_days} 天），結合今日飲食熱量狀況進行整體評估。
 4. 運動推薦硬性格式：從學員偏好運動清單 ({pref_str}) 中挑選 1 項推薦。推薦時【除了運動項目之外，必須同時建議具體的時間或幾下幾組】！
-   - 例如有氧/跑步類：建議格式為「跑步 30分鐘」或「散步 40分鐘」或「腳踏車 45分鐘」。
+   - 例如有氧/跑步類：建議格式為「跑步 30分鐘」或「散步 40分鐘」或「自行車 45分鐘」。
    - 例如重訓/力量類：建議格式為「臥推 10下3組」或「深蹲 15下3組」或「二頭肌彎舉 12下3組」。
 5. 避免重複：參考學員今日已做運動 ({exercises_text})，請推薦不同於今日已做項目的運動，保持運動多樣性與輪替。
 
@@ -380,7 +380,7 @@ JSON範例：
         except Exception as e:
             logger.error(f"Failed to generate day summary: {e}")
             default_pref = filtered_prefs[0] if filtered_prefs else "慢跑"
-            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "腳踏車"] else f"{default_pref} 10下3組"
+            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "自行車", "腳踏車"] else f"{default_pref} 10下3組"
             return (
                 f"🌟 達標亮點：感謝您今日持續記錄飲食與運動！\n"
                 f"📊 營養評估：淨熱量攝取為 {net_cals:.0f} kcal。\n"
@@ -407,8 +407,8 @@ JSON範例：
         else:
             weight_goal_desc = f"體能維持 (當前與目標均為 {curr_w}kg)"
 
-        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "游泳", "散步", "腳踏車"]) if p != "重量訓練"]
-        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 游泳, 散步, 腳踏車"
+        filtered_prefs = [p for p in (preferred_exercises or ["慢跑", "自行車", "游泳", "散步"]) if p != "重量訓練"]
+        pref_str = ", ".join(filtered_prefs) if filtered_prefs else "慢跑, 自行車, 游泳, 散步"
         done_ex_str = ", ".join([e.get("exercise_type", "") for e in today_exercises]) if today_exercises else "無"
 
         prompt = f"""
@@ -420,7 +420,7 @@ JSON範例：
 3. 【計畫性與週期排程】：絕對不可隨機或單純輪替挑選！必須根據學員的【每週預計運動天數 ({workout_days} 天/週)】與【體重目標 ({weight_goal_desc})】，排定符合科學週期的訓練計畫焦點（例如：3 天計畫可排定「上肢推拉/下肢核心/有氧心肺」；5 天計畫可分拆「胸、背、腿、肩、心肺」；減重著重高熱量消耗搭配大肌群，增肌著重漸進負荷強度）。
 4. 【項目精準選用】：從學員的偏好運動清單 ({pref_str}) 中，評估並精確挑選出最符合【今日計劃焦點】的 1 個項目。
 5. 【具體數據規格】：推薦的項目必須標示【具體時間】或【幾下幾組與強度規格】！
-   - 例如：「臥推 10下3組」、「慢跑 30分鐘 (保持配速與微喘強度)」、「深蹲 12下3組」、「腳踏車 40分鐘」。
+   - 例如：「臥推 10下3組」、「慢跑 30分鐘 (保持配速與微喘強度)」、「深蹲 12下3組」、「自行車 40分鐘」。
 6. 【說明計畫邏輯】：極簡說明（字數嚴格限制在 10~20 字以內，精準指出訓練好處，絕對不要長篇大論）。
 
 學員當前規劃數據：
@@ -442,7 +442,7 @@ JSON範例：
         except Exception as e:
             logger.error(f"Failed to generate workout recommendation: {e}")
             default_pref = filtered_prefs[0] if filtered_prefs else "慢跑"
-            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "腳踏車"] else f"{default_pref} 10下3組"
+            default_rec = f"{default_pref} 30分鐘" if default_pref in ["慢跑", "散步", "游泳", "自行車", "腳踏車"] else f"{default_pref} 10下3組"
             return (
                 f"🏋️‍♂️【阿肌師週計畫運動推薦】\n"
                 f"----------------------------\n"
