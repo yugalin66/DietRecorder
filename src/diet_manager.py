@@ -1,11 +1,31 @@
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import zoneinfo
 from sqlalchemy.orm import Session
-from src.models import User, DailyLog, MealRecord
+from src.models import User, DailyLog, MealRecord, ExerciseRecord, ALL_CANDIDATE_EXERCISES
 from src.gemini_service import gemini_service
 from src.line_service import line_service
 
 logger = logging.getLogger(__name__)
+
+def get_current_diet_date(dt: datetime | None = None) -> str:
+    """
+    Returns the logical diet date string (YYYY-MM-DD).
+    The daily tracking cycle resets at 05:00:00 (Asia/Taipei).
+    Any timestamp between 00:00:00 and 04:59:59 belongs to the previous day.
+    """
+    if dt is None:
+        try:
+            tz = zoneinfo.ZoneInfo("Asia/Taipei")
+            now = datetime.now(tz)
+        except Exception:
+            now = datetime.now()
+    else:
+        now = dt
+
+    diet_date = (now - timedelta(hours=5)).date()
+    return diet_date.isoformat()
 
 def make_progress_bar(current: float, target: float, length: int = 10) -> str:
     if target <= 0:
@@ -193,31 +213,158 @@ def build_option_carousel_card(meal_type: str, options: list[dict]) -> tuple[dic
     alt_text = f"【{meal_name_tw}選項卡片】"
     return carousel_dict, alt_text
 
+def get_user_preferred_exercises(user: User) -> list[str]:
+    try:
+        if user.preferred_exercises:
+            return json.loads(user.preferred_exercises)
+    except Exception:
+        pass
+    return ["慢跑", "游泳", "散步", "腳踏車"]
+
 def build_exercise_list_flex(user: User) -> tuple[dict, str]:
     days = getattr(user, "workout_days", 3)
+    prefs = get_user_preferred_exercises(user)
+
+    pref_boxes = []
+    for p in prefs:
+        pref_boxes.append({
+            "type": "box",
+            "layout": "horizontal",
+            "alignItems": "center",
+            "contents": [
+                {"type": "text", "text": f"🏅 {p}", "size": "sm", "color": "#111827", "weight": "bold", "flex": 3},
+                {
+                    "type": "button",
+                    "style": "link",
+                    "height": "sm",
+                    "action": {
+                        "type": "postback",
+                        "label": "❌ 移除",
+                        "data": f"action=remove_exercise&name={p}",
+                        "displayText": f"移除偏好運動：{p}"
+                    },
+                    "flex": 2
+                }
+            ]
+        })
+
+    candidate_exercises = ["慢跑", "游泳", "散步", "腳踏車", "羽毛球", "籃球", "臥推", "深蹲", "二頭肌彎舉", "滑輪下拉", "划船", "腿推", "核心"]
+    not_added = [c for c in candidate_exercises if c not in prefs]
+
+    cand_rows = []
+    for i in range(0, len(not_added), 3):
+        row_cands = not_added[i:i+3]
+        btn_row = []
+        for c in row_cands:
+            btn_row.append({
+                "type": "button",
+                "style": "secondary",
+                "height": "sm",
+                "margin": "xs",
+                "action": {
+                    "type": "postback",
+                    "label": f"+ {c}",
+                    "data": f"action=add_exercise&name={c}",
+                    "displayText": f"新增偏好運動：{c}"
+                }
+            })
+        cand_rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "xs",
+            "contents": btn_row
+        })
+
+    body_contents = [
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "alignItems": "center",
+            "contents": [
+                {"type": "text", "text": f"📅 每週運動天數：{days} 天", "weight": "bold", "size": "sm", "color": "#1F2937", "flex": 3},
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#059669",
+                    "height": "sm",
+                    "action": {
+                        "type": "postback",
+                        "label": "修改天數",
+                        "data": "action=select_workout_days",
+                        "displayText": "修改每週運動天數"
+                    },
+                    "flex": 2
+                }
+            ]
+        },
+        {"type": "separator", "margin": "md"},
+        {"type": "text", "text": "🎯 目前偏好運動清單：", "weight": "bold", "size": "xs", "color": "#4B5563", "margin": "md"}
+    ]
+    if pref_boxes:
+        body_contents.extend(pref_boxes)
+    else:
+        body_contents.append({"type": "text", "text": "尚無設定偏好項目", "size": "xs", "color": "#9CA3AF"})
+
+    if cand_rows:
+        body_contents.append({"type": "separator", "margin": "md"})
+        body_contents.append({"type": "text", "text": "➕ 點擊快速加入偏好項目：", "weight": "bold", "size": "xs", "color": "#4B5563", "margin": "md"})
+        body_contents.extend(cand_rows)
+
     flex_card = {
         "type": "bubble",
+        "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
             "backgroundColor": "#059669",
             "paddingAll": "15px",
             "contents": [
-                {"type": "text", "text": "🏃‍♂️ 個人運動偏好與天數管理", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+                {"type": "text", "text": "🏃‍♂️ 個人運動偏好與天數管理", "weight": "bold", "color": "#FFFFFF", "size": "md"}
             ]
         },
         "body": {
             "type": "box",
             "layout": "vertical",
             "paddingAll": "15px",
-            "contents": [
-                {"type": "text", "text": f"每週運動目標天數：{days} 天", "size": "sm", "color": "#1F2937"}
-            ]
+            "spacing": "xs",
+            "contents": body_contents
         }
     }
     return flex_card, "【個人運動清單】"
 
 def build_workout_days_select_flex(user: User) -> tuple[dict, str]:
+    days_btns_1 = []
+    days_btns_2 = []
+    current_days = getattr(user, "workout_days", 3)
+    for d in [1, 2, 3, 4]:
+        days_btns_1.append({
+            "type": "button",
+            "style": "primary" if d == current_days else "secondary",
+            "color": "#059669" if d == current_days else None,
+            "height": "sm",
+            "margin": "xs",
+            "action": {
+                "type": "postback",
+                "label": f"{d} 天",
+                "data": f"action=set_workout_days&days={d}",
+                "displayText": f"設定每週運動 {d} 天"
+            }
+        })
+    for d in [5, 6, 7]:
+        days_btns_2.append({
+            "type": "button",
+            "style": "primary" if d == current_days else "secondary",
+            "color": "#059669" if d == current_days else None,
+            "height": "sm",
+            "margin": "xs",
+            "action": {
+                "type": "postback",
+                "label": f"{d} 天",
+                "data": f"action=set_workout_days&days={d}",
+                "displayText": f"設定每週運動 {d} 天"
+            }
+        })
+
     flex_card = {
         "type": "bubble",
         "header": {
@@ -226,21 +373,45 @@ def build_workout_days_select_flex(user: User) -> tuple[dict, str]:
             "backgroundColor": "#059669",
             "paddingAll": "15px",
             "contents": [
-                {"type": "text", "text": "設定每週運動天數", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+                {"type": "text", "text": "🗓️ 設定每週運動天數", "weight": "bold", "color": "#FFFFFF", "size": "md"}
             ]
         },
         "body": {
             "type": "box",
             "layout": "vertical",
             "paddingAll": "15px",
+            "spacing": "md",
             "contents": [
-                {"type": "text", "text": "請選擇您每週預計運動的天數：", "size": "sm", "color": "#1F2937"}
+                {"type": "text", "text": "請選擇您每週預計的訓練天數：", "size": "sm", "color": "#1F2937"},
+                {"type": "box", "layout": "horizontal", "spacing": "xs", "contents": days_btns_1},
+                {"type": "box", "layout": "horizontal", "spacing": "xs", "contents": days_btns_2}
             ]
         }
     }
     return flex_card, "【設定每週運動天數】"
 
 def build_exercise_select_flex() -> tuple[dict, str]:
+    cands = ["慢跑", "游泳", "散步", "腳踏車", "臥推", "深蹲", "二頭肌彎舉", "核心"]
+    rows = []
+    for i in range(0, len(cands), 2):
+        pair = cands[i:i+2]
+        row_btns = []
+        for c in pair:
+            row_btns.append({
+                "type": "button",
+                "style": "primary",
+                "color": "#059669",
+                "height": "sm",
+                "margin": "xs",
+                "action": {
+                    "type": "postback",
+                    "label": c,
+                    "data": f"action=select_exercise&name={c}",
+                    "displayText": f"選擇運動：{c}"
+                }
+            })
+        rows.append({"type": "box", "layout": "horizontal", "spacing": "xs", "contents": row_btns})
+
     flex_card = {
         "type": "bubble",
         "header": {
@@ -249,13 +420,38 @@ def build_exercise_select_flex() -> tuple[dict, str]:
             "backgroundColor": "#059669",
             "paddingAll": "15px",
             "contents": [
-                {"type": "text", "text": "運動項目選擇", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+                {"type": "text", "text": "🏋️ 選擇今日運動項目", "weight": "bold", "color": "#FFFFFF", "size": "md"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "15px",
+            "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "請點選您要打卡的運動：", "size": "sm", "color": "#1F2937"},
+                *rows
             ]
         }
     }
     return flex_card, "【選擇運動】"
 
 def build_exercise_duration_flex(name: str) -> tuple[dict, str]:
+    durations = [15, 30, 45, 60]
+    btns = []
+    for d in durations:
+        btns.append({
+            "type": "button",
+            "style": "secondary",
+            "height": "sm",
+            "margin": "xs",
+            "action": {
+                "type": "postback",
+                "label": f"{d} 分鐘",
+                "data": f"action=select_duration&name={name}&min={d}",
+                "displayText": f"{name} {d} 分鐘"
+            }
+        })
     flex_card = {
         "type": "bubble",
         "header": {
@@ -264,13 +460,89 @@ def build_exercise_duration_flex(name: str) -> tuple[dict, str]:
             "backgroundColor": "#059669",
             "paddingAll": "15px",
             "contents": [
-                {"type": "text", "text": f"選擇【{name}】時間", "weight": "bold", "color": "#FFFFFF", "size": "lg"}
+                {"type": "text", "text": f"⏱️ 選擇【{name}】時間", "weight": "bold", "color": "#FFFFFF", "size": "md"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "15px",
+            "spacing": "md",
+            "contents": [
+                {"type": "text", "text": f"請問進行了多久時間呢？", "size": "sm", "color": "#1F2937"},
+                {"type": "box", "layout": "horizontal", "spacing": "xs", "contents": btns}
             ]
         }
     }
     return flex_card, f"【{name} 時間選擇】"
 
 class DietManager:
+    def __init__(self):
+        self.user_pending_actions: dict[str, str] = {}
+
+    def get_user_preferred_exercises(self, user: User) -> list[str]:
+        return get_user_preferred_exercises(user)
+
+    def add_user_preferred_exercise(self, db: Session, user: User, exercise_name: str) -> tuple[bool, str]:
+        prefs = self.get_user_preferred_exercises(user)
+        if exercise_name in prefs:
+            return False, f"⚠️ 【{exercise_name}】已經在您的偏好運動清單中囉！"
+        prefs.append(exercise_name)
+        user.preferred_exercises = json.dumps(prefs, ensure_ascii=False)
+        db.commit()
+        return True, f"✅ 已成功將【{exercise_name}】加入您的偏好運動清單！"
+
+    def remove_user_preferred_exercise(self, db: Session, user: User, exercise_name: str) -> tuple[bool, str]:
+        prefs = self.get_user_preferred_exercises(user)
+        if exercise_name not in prefs:
+            return False, f"⚠️ 【{exercise_name}】不在您的偏好清單中。"
+        prefs.remove(exercise_name)
+        user.preferred_exercises = json.dumps(prefs, ensure_ascii=False)
+        db.commit()
+        return True, f"✅ 已將【{exercise_name}】從偏好清單中移除。"
+
+    def process_exercise_message(self, db: Session, user_id: str, image_bytes: bytes | None = None, text_description: str | None = None) -> str:
+        user = self.get_or_create_user(db, user_id)
+        today_log = self.get_or_create_daily_log(db, user_id)
+
+        analysis = gemini_service.analyze_exercise(image_bytes=image_bytes, text_description=text_description)
+        if not analysis.get("is_exercise", True):
+            return (
+                "⚠️ 未能在此照片/訊息中辨識出明確的運動紀錄。\n\n"
+                "💡 支援格式：\n"
+                "• 文字打卡：例如「慢跑 30分鐘」、「深蹲 15下3組」\n"
+                "• 照片打卡：運動手錶、跑步機螢幕、健身房設備截圖"
+            )
+
+        ex_name = analysis.get("exercise_name", "體能訓練")
+        duration = analysis.get("duration_minutes", 30)
+        cals_burned = float(analysis.get("calories_burned", 150.0))
+        summary = analysis.get("summary", "持之以恆，繼續加油！")
+
+        ex_rec = ExerciseRecord(
+            daily_log_id=today_log.id,
+            user_id=user.user_id,
+            exercise_type=ex_name,
+            duration_minutes=duration,
+            calories_burned=cals_burned,
+            detail_description=text_description or ex_name,
+            ai_analysis=summary
+        )
+        db.add(ex_rec)
+        today_log.total_exercise_calories = (today_log.total_exercise_calories or 0.0) + cals_burned
+        db.commit()
+        db.refresh(today_log)
+
+        return (
+            f"🏃‍♂️ 【運動打卡成功】\n"
+            f"----------------------------\n"
+            f"🏋️ 運動項目：{ex_name}\n"
+            f"⏱️ 運動時間：約 {duration} 分鐘\n"
+            f"🔥 消耗熱量：-{cals_burned:.0f} kcal\n"
+            f"💬 教練簡評：{summary}\n\n"
+            f"📊 今日累計運動消耗：{today_log.total_exercise_calories:.0f} kcal"
+        )
+
     def get_or_create_user(self, db: Session, user_id: str) -> User:
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
@@ -292,7 +564,7 @@ class DietManager:
 
     def get_or_create_daily_log(self, db: Session, user_id: str, date_str: str | None = None) -> DailyLog:
         if not date_str:
-            date_str = date.today().isoformat()
+            date_str = get_current_diet_date()
         log = db.query(DailyLog).filter(DailyLog.user_id == user_id, DailyLog.log_date == date_str).first()
         if not log:
             log = DailyLog(
@@ -309,6 +581,24 @@ class DietManager:
             db.add(log)
             db.commit()
             db.refresh(log)
+        return log
+
+    def reset_daily_log(self, db: Session, user_id: str, date_str: str | None = None) -> DailyLog:
+        """Reset the current daily log for user_id to clean 0 state."""
+        log = self.get_or_create_daily_log(db, user_id, date_str)
+        # Delete meal records for this daily log
+        db.query(MealRecord).filter(MealRecord.daily_log_id == log.id).delete(synchronize_session='fetch')
+        # Reset log status
+        log.breakfast_completed = False
+        log.lunch_completed = False
+        log.dinner_completed = False
+        log.total_calories = 0.0
+        log.total_protein = 0.0
+        log.total_carbs = 0.0
+        log.total_fat = 0.0
+        log.total_exercise_calories = 0.0
+        db.commit()
+        db.refresh(log)
         return log
 
     def get_welcome_message(self) -> str:
@@ -357,7 +647,10 @@ class DietManager:
 7. 🏃‍♀️ 【個人運動清單與天數管理】
    - 輸入：「運動清單」查看與設定運動天數與偏好運動
 
-8. ❓ 【使用說明】
+8. 🔄 【重置今日飲食】
+   - 輸入：「重置」或「/reset」隨時清空今日飲食並從早餐重新開始（系統亦於每日凌晨 05:00 自動歸零重置）。
+
+9. ❓ 【使用說明】
    - 輸入：「說明」、「指令」或「幫助」"""
 
     def process_text_message(self, db: Session, user_id: str, text: str):
@@ -367,8 +660,74 @@ class DietManager:
 
         # Check 0: Explicit help query or unsupported slash command
         help_kw = ["/help", "help", "說明", "使用說明", "幫助", "指令", "教我", "/start", "?", "？"]
-        if clean_text in help_kw or (clean_text.startswith("/") and clean_text not in ["/status", "/setup", "/help"]):
+        if clean_text in help_kw or (clean_text.startswith("/") and clean_text not in ["/status", "/setup", "/help", "/reset"]):
             return self.get_help_message()
+
+        # Check 0.1: Pending custom exercise input from postback prompt
+        if self.user_pending_actions.get(user_id) == "awaiting_custom_exercise":
+            self.user_pending_actions.pop(user_id, None)
+            ok, notice = self.add_user_preferred_exercise(db, user, clean_text)
+            flex_card, alt_text = build_exercise_list_flex(user)
+            return (notice, flex_card, alt_text)
+
+        # Check 0.2: Exercise List / Preference Management Intent
+        exercise_list_kw = ["運動清單", "偏好運動", "運動設定", "運動天數", "健身清單", "運動偏好", "我的運動", "個人運動清單"]
+        if any(kw == clean_text for kw in exercise_list_kw):
+            flex_card, alt_text = build_exercise_list_flex(user)
+            return ("🏃‍♂️ 為您開啟【個人運動偏好與天數管理】卡片：", flex_card, alt_text)
+
+        # Check 0.3: Exercise Recommendation Intent
+        exercise_rec_kw = ["運動", "今日運動", "運動推薦", "推薦運動", "健身", "健身推薦", "今日健身", "訓練", "今日訓練", "重訓推薦"]
+        if any(kw == clean_text for kw in exercise_rec_kw):
+            user_name = line_service.get_user_profile(user.user_id)
+            user_info = self._user_to_dict(user)
+            user_info["workout_days"] = user.workout_days
+            today_exercises = [
+                {"exercise_type": e.exercise_type, "duration_minutes": e.duration_minutes, "calories_burned": e.calories_burned}
+                for e in getattr(today_log, "exercises", [])
+            ]
+            prefs = self.get_user_preferred_exercises(user)
+            rec_text = gemini_service.suggest_workout_recommendation(
+                user_name=user_name,
+                user_info=user_info,
+                today_exercises=today_exercises,
+                preferred_exercises=prefs
+            )
+            return rec_text
+
+        # Check 0.4: Single exercise item selection (e.g. "慢跑", "深蹲")
+        all_candidate_items = ["慢跑", "游泳", "散步", "腳踏車", "羽毛球", "籃球", "臥推", "深蹲", "二頭肌彎舉", "滑輪下拉", "划船", "腿推", "核心"]
+        if clean_text in all_candidate_items:
+            flex_card, alt_text = build_exercise_duration_flex(clean_text)
+            return (f"您選擇了【{clean_text}】！請問進行了多久時間呢？", flex_card, alt_text)
+
+        # Check 0.45: Exercise Recording Intent in text (e.g. "慢跑 30分鐘", "深蹲 15下3組", "游泳40min", "騎腳踏車1小時")
+        exercise_action_keywords = [
+            "慢跑", "跑步", "游泳", "散步", "健走", "腳踏車", "單車", "騎車",
+            "臥推", "深蹲", "二頭肌", "滑輪下拉", "划船", "腿推", "硬舉",
+            "核心", "開合跳", "波比跳", "羽毛球", "籃球", "網球", "瑜珈", "皮拉提斯",
+            "重訓", "練胸", "練背", "練腿", "練肩", "有氧", "tabata", "hit", "hiit"
+        ]
+        has_exercise_kw = any(k in clean_text for k in exercise_action_keywords)
+        has_time_or_set_unit = any(u in clean_text for u in ["分", "min", "小時", "hr", "組", "下", "次", "公里", "km", "k"])
+        if has_exercise_kw and (has_time_or_set_unit or any(v in clean_text for v in ["做了", "去", "完成", "練了", "打卡"])):
+            return self.process_exercise_message(db, user_id, text_description=clean_text)
+
+        # Check 0.5: Explicit reset daily log command
+        is_reset_intent = (
+            clean_text in ["/reset", "reset", "重置", "重設", "重新開始"]
+            or any(kw in clean_text for kw in ["重置", "重設今日", "清除飲食", "重置飲食", "清除今日", "重設紀錄", "重新開始"])
+        ) and not any(kw in clean_text for kw in ["體重", "目標", "身高", "年齡", "運動清單", "公斤", "kg"])
+
+        if is_reset_intent:
+            self.reset_daily_log(db, user_id)
+            return (
+                "🔄 【今日飲食紀錄已重置】\n"
+                "----------------------------\n"
+                "已清除今日所有餐點紀錄與熱量累積！\n"
+                "流程已重設為從【早餐】開始。\n\n"
+                "💡 傳送「早安」或上傳早餐照片/文字即可開始新的一天記錄！💪"
+            )
 
         # Check 1: User weight & profile setup intent
         if any(keyword in clean_text for keyword in ["體重", "目標", "設定", "/setup", "公斤", "kg", "減重", "增重"]):
@@ -584,9 +943,24 @@ class DietManager:
         )
 
         user_profile = self._user_to_dict(user)
+        user_profile["workout_days"] = user.workout_days
         total_consumed = self._log_to_dict(log)
         consumed_meals_summary = [f"{m.meal_type}: {m.food_description}" for m in log.meals]
         progress_bar_section = build_4_progress_bars(log, user)
+
+        # Check if user has not exercised today
+        workout_section = ""
+        today_exercises = getattr(log, "exercises", [])
+        if not today_exercises:
+            user_name = line_service.get_user_profile(user.user_id)
+            prefs = self.get_user_preferred_exercises(user)
+            workout_rec = gemini_service.suggest_workout_recommendation(
+                user_name=user_name,
+                user_info=user_profile,
+                today_exercises=[],
+                preferred_exercises=prefs
+            )
+            workout_section = f"\n\n----------------------------\n{workout_rec}"
 
         # Trigger next step in sequence
         if meal_type == "breakfast":
@@ -594,28 +968,35 @@ class DietManager:
             intro_summary = rec_dict.get("intro_summary", "為您提供【午餐建議選單】：")
             options = rec_dict.get("options", [])
             flex_carousel, alt_text = build_option_carousel_card("lunch", options)
-            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n----------------------------\n🥗 {intro_summary}", flex_carousel, alt_text)
+            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}{workout_section}\n\n----------------------------\n🥗 {intro_summary}", flex_carousel, alt_text)
 
         elif meal_type == "lunch":
             rec_dict = gemini_service.suggest_next_meal("dinner", user_profile, total_consumed, consumed_meals_summary)
             intro_summary = rec_dict.get("intro_summary", "為您提供【晚餐建議選單】：")
             options = rec_dict.get("options", [])
             flex_carousel, alt_text = build_option_carousel_card("dinner", options)
-            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n----------------------------\n🍲 {intro_summary}", flex_carousel, alt_text)
+            return (f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}{workout_section}\n\n----------------------------\n🍲 {intro_summary}", flex_carousel, alt_text)
 
         elif meal_type == "dinner" or (log.breakfast_completed and log.lunch_completed and log.dinner_completed):
             user_name = line_service.get_user_profile(user.user_id)
+            exercise_records = [
+                {"exercise_type": e.exercise_type, "duration_minutes": e.duration_minutes, "calories_burned": e.calories_burned}
+                for e in today_exercises
+            ]
+            prefs = self.get_user_preferred_exercises(user)
             day_summary = gemini_service.generate_day_summary(
                 user_name,
                 user_profile,
                 total_consumed,
-                [self._meal_to_dict(m) for m in log.meals]
+                [self._meal_to_dict(m) for m in log.meals],
+                exercise_records=exercise_records,
+                preferred_exercises=prefs
             )
 
             full_text = f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}\n\n🎉 【一日總結與明日建議】\n{day_summary}"
             return full_text
         else:
-            full_text = f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}"
+            full_text = f"{meal_summary_text}\n\n----------------------------\n{progress_bar_section}{workout_section}"
             return full_text
 
     def generate_realtime_day_summary(self, user: User, log: DailyLog, user_name: str) -> str:
@@ -638,12 +1019,20 @@ class DietManager:
             return f"{status_header}\n----------------------------\n💡 您今天尚未記錄任何餐點喔！傳送照片或輸入文字即可開始記錄！"
 
         user_profile = self._user_to_dict(user)
+        user_profile["workout_days"] = user.workout_days
         total_consumed = self._log_to_dict(log)
+        exercise_records = [
+            {"exercise_type": e.exercise_type, "duration_minutes": e.duration_minutes, "calories_burned": e.calories_burned}
+            for e in getattr(log, "exercises", [])
+        ]
+        prefs = self.get_user_preferred_exercises(user)
         ai_summary = gemini_service.generate_day_summary(
             user_name,
             user_profile,
             total_consumed,
-            [self._meal_to_dict(m) for m in log.meals]
+            [self._meal_to_dict(m) for m in log.meals],
+            exercise_records=exercise_records,
+            preferred_exercises=prefs
         )
 
         return f"{status_header}\n----------------------------\n🎉 【今日飲食 AI 總結與建議】\n{ai_summary}"
@@ -666,7 +1055,8 @@ class DietManager:
             "calories": log.total_calories,
             "protein": log.total_protein,
             "carbs": log.total_carbs,
-            "fat": log.total_fat
+            "fat": log.total_fat,
+            "exercise_calories": getattr(log, "total_exercise_calories", 0.0) or 0.0
         }
 
     def _meal_to_dict(self, m: MealRecord) -> dict:
