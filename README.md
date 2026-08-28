@@ -65,8 +65,7 @@ DietBot/
 │   ├── models.py               # User, DailyLog, MealRecord 資料表
 │   ├── gemini_service.py       # Gemini 多 Key/模型輪替 API 服務
 │   ├── line_service.py         # LINE Messaging API 推播與回覆
-│   ├── diet_manager.py         # 飲食狀態機與核心業務邏輯
-│   └── scheduler.py            # APScheduler 定時推播任務
+│   └── diet_manager.py         # 飲食狀態機與核心業務邏輯
 ├── tests/                      # 自動化測試單元模組目錄
 │   ├── conftest.py             # 測試 Fixture 與 Helper 函式
 │   ├── test_user_creation.py

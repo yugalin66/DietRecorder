@@ -2,6 +2,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from src.config import settings
 
+from pathlib import Path
+
+if "sqlite" in settings.DATABASE_URL:
+    db_path_str = settings.DATABASE_URL.replace("sqlite:///", "")
+    if db_path_str:
+        Path(db_path_str).parent.mkdir(parents=True, exist_ok=True)
+
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}

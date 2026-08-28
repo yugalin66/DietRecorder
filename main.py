@@ -12,7 +12,6 @@ from src.config import settings
 from src.database import init_db, get_db, SessionLocal
 from src.diet_manager import diet_manager
 from src.line_service import line_service
-from src.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -23,11 +22,7 @@ handler = WebhookHandler(settings.LINE_CHANNEL_SECRET) if settings.LINE_CHANNEL_
 async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     init_db()
-    logger.info("Starting scheduler...")
-    start_scheduler()
     yield
-    logger.info("Stopping scheduler...")
-    stop_scheduler()
 
 app = FastAPI(title="阿肌師 API", version="1.0.0", lifespan=lifespan)
 
